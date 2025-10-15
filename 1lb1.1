@@ -1,0 +1,250 @@
+.intel_syntax noprefix
+.global main
+
+.data
+    original: .ascii "Наполеон стоял несколько впереди своих маршалов на маленькой серой арабской лошади"
+    hex_buffer: .space 128
+    restore_buffer: .space 64
+    handle: .quad 0
+    newline: .ascii "\n"
+
+.text
+main:
+    push rbp
+    mov rbp, rsp
+    
+    # Получаем handle консоли
+    mov rcx, -11
+    call GetStdHandle
+    mov [rip + handle], rax
+    
+    # 1. Загружаем всю строку в регистры R8-R15 и выводим
+    call load_string_to_registers
+    call save_registers_to_memory
+    mov rcx, offset restore_buffer
+    mov rdx, 64
+    call print_string
+    call print_newline
+    
+    # 2. Преобразование в регистрах (XOR с 0x20)
+    call transform_forward
+    call save_registers_to_memory
+    
+    # 3. Конвертируем в hex (работаем в регистрах)
+    mov rsi, offset restore_buffer
+    mov rdi, offset hex_buffer
+    mov rcx, 64
+    call string_to_hex
+    mov rcx, offset hex_buffer
+    mov rdx, 128
+    call print_string
+    call print_newline
+    
+    # 4. Обратное преобразование hex->string и отмена XOR
+    mov rsi, offset hex_buffer
+    mov rdi, offset restore_buffer
+    mov rcx, 128
+    call hex_to_string
+    
+    call load_string_to_registers
+    call transform_backward
+    call save_registers_to_memory
+    
+    # 5. Вывод восстановленной строки
+    mov rcx, offset restore_buffer
+    mov rdx, 64
+    call print_string
+    call print_newline
+    
+    pop rbp
+    ret
+
+# Загружает строку в регистры R8-R15
+load_string_to_registers:
+    mov r8,  [offset original]
+    mov r9,  [offset original + 8]
+    mov r10, [offset original + 16]
+    mov r11, [offset original + 24]
+    mov r12, [offset original + 32]
+    mov r13, [offset original + 40]
+    mov r14, [offset original + 48]
+    mov r15, [offset original + 56]
+    ret
+
+# Сохраняет регистры R8-R15 в память
+save_registers_to_memory:
+    mov [offset restore_buffer], r8
+    mov [offset restore_buffer + 8], r9
+    mov [offset restore_buffer + 16], r10
+    mov [offset restore_buffer + 24], r11
+    mov [offset restore_buffer + 32], r12
+    mov [offset restore_buffer + 40], r13
+    mov [offset restore_buffer + 48], r14
+    mov [offset restore_buffer + 56], r15
+    ret
+
+# Прямое преобразование в регистрах (XOR каждого байта с 0x20)
+transform_forward:
+    mov rax, 0x2020202020202020
+    xor r8, rax
+    xor r9, rax
+    xor r10, rax
+    xor r11, rax
+    xor r12, rax
+    xor r13, rax
+    xor r14, rax
+    xor r15, rax
+    ret
+
+# Обратное преобразование в регистрах
+transform_backward:
+    mov rax, 0x2020202020202020
+    xor r8, rax
+    xor r9, rax
+    xor r10, rax
+    xor r11, rax
+    xor r12, rax
+    xor r13, rax
+    xor r14, rax
+    xor r15, rax
+    ret
+
+# Конвертация строки в hex (оптимизированная версия)
+string_to_hex:
+    push r15
+    push r14
+    mov r15, rcx        # счетчик
+    mov r14, rdi        # выходной буфер
+    
+stoh_loop:
+    mov rax, [rsi]      # загружаем 8 байт
+    mov rcx, 8          # обрабатываем 8 байт
+    
+process_byte:
+    mov rbx, rax
+    and rbx, 0xFF       # берем младший байт
+    
+    # Старшая тетрада
+    mov rdx, rbx
+    shr rdx, 4
+    call nibble_to_hex
+    mov [rdi], dl
+    inc rdi
+    
+    # Младшая тетрада
+    mov rdx, rbx
+    and rdx, 0x0F
+    call nibble_to_hex
+    mov [rdi], dl
+    inc rdi
+    
+    shr rax, 8          # переходим к следующему байту
+    dec rcx
+    jnz process_byte
+    
+    add rsi, 8
+    sub r15, 8
+    jnz stoh_loop
+    
+    pop r14
+    pop r15
+    ret
+
+# Конвертация hex обратно в строку
+hex_to_string:
+    push r15
+    push r14
+    mov r15, rcx        # счетчик hex символов
+    shr r15, 1          # делим на 2
+    mov r14, rdi        # выходной буфер
+    
+htos_loop:
+    xor rax, rax
+    mov rcx, 8          # собираем 8 байт
+    
+build_byte:
+    mov dl, [rsi]       # первый hex символ
+    mov dh, [rsi + 1]   # второй hex символ
+    
+    call hex_to_nibble
+    shl dl, 4
+    call hex_to_nibble
+    or dl, dh
+    
+    shr rax, 8          # освобождаем место для нового байта
+    mov al, dl          # добавляем байт
+    
+    add rsi, 2
+    dec r15
+    jz htos_done
+    dec rcx
+    jnz build_byte
+    
+htos_done:
+    # Разворачиваем байты в правильном порядке
+    bswap rax
+    mov [rdi], rax
+    add rdi, 8
+    
+    test r15, r15
+    jnz htos_loop
+    
+    pop r14
+    pop r15
+    ret
+
+# Преобразование тетрады в hex символ
+# Вход: DL - тетрада, Выход: DL - символ
+nibble_to_hex:
+    cmp dl, 10
+    jb .digit
+    add dl, 'A' - 10
+    ret
+.digit:
+    add dl, '0'
+    ret
+
+# Преобразование hex символа в тетраду
+# Вход: DL/DH - символ, Выход: DL/DH - тетрада
+hex_to_nibble:
+    cmp dl, 'A'
+    jb .digit
+    sub dl, 'A' - 10
+    ret
+.digit:
+    sub dl, '0'
+    ret
+
+# Вывод строки на экран
+print_string:
+    push rbp
+    mov rbp, rsp
+    sub rsp, 32
+    
+    mov r8, rdx         # длина
+    mov rdx, rcx        # указатель
+    mov rcx, [rip + handle]
+    xor r9, r9
+    mov [rsp + 32], r9
+    call WriteFile
+    
+    add rsp, 32
+    pop rbp
+    ret
+
+# Вывод перевода строки
+print_newline:
+    push rbp
+    mov rbp, rsp
+    sub rsp, 32
+    
+    mov rcx, [rip + handle]
+    mov rdx, offset newline
+    mov r8, 1
+    xor r9, r9
+    mov [rsp + 32], r9
+    call WriteFile
+    
+    add rsp, 32
+    pop rbp
+    ret
