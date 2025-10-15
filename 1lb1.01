@@ -1,0 +1,205 @@
+.intel_syntax noprefix
+.global main
+
+# ========================
+# FULLY COMMENTED VERSION
+# ========================
+
+.data
+original:     .ascii "Наполеон стоял несколько впереди своих маршалов на маленькой серой арабской лошади"  # 64 bytes
+hex_buffer:   .space 128
+restore_buffer: .space 64
+handle:       .quad 0
+newline:      .ascii "\n"
+
+.text
+main:
+    push rbp
+    mov rbp, rsp
+
+    mov ecx, -11                   # STD_OUTPUT_HANDLE
+    call GetStdHandle
+    mov [rel handle], rax
+
+    call load_string_to_registers  # load string into R8–R15
+    call save_registers_to_memory  # save to restore_buffer for printing
+
+    lea rcx, [rel restore_buffer]
+    mov rdx, 64
+    call print_string              # print original string
+    call print_newline
+
+    call transform_add4            # transform: +0x04 to all bytes
+    call save_registers_to_memory
+
+    lea rsi, [rel restore_buffer]
+    lea rdi, [rel hex_buffer]
+    mov rcx, 64
+    call string_to_hex             # ASCII -> HEX
+
+    lea rcx, [rel hex_buffer]
+    mov rdx, 128
+    call print_string
+    call print_newline
+
+    lea rsi, [rel hex_buffer]
+    lea rdi, [rel restore_buffer]
+    mov rcx, 128
+    call hex_to_string             # HEX -> ASCII
+
+    call load_string_to_registers
+    call transform_sub4            # reverse transformation (-0x04)
+    call save_registers_to_memory
+
+    lea rcx, [rel restore_buffer]
+    mov rdx, 64
+    call print_string
+    call print_newline
+
+    pop rbp
+    ret
+
+# === Load 64 bytes to R8–R15 ===
+load_string_to_registers:
+    lea rsi, [rel original]
+    mov r8,  [rsi]
+    mov r9,  [rsi+8]
+    mov r10, [rsi+16]
+    mov r11, [rsi+24]
+    mov r12, [rsi+32]
+    mov r13, [rsi+40]
+    mov r14, [rsi+48]
+    mov r15, [rsi+56]
+    ret
+
+# === Save R8–R15 to memory ===
+save_registers_to_memory:
+    lea rdi, [rel restore_buffer]
+    mov [rdi],     r8
+    mov [rdi+8],   r9
+    mov [rdi+16],  r10
+    mov [rdi+24],  r11
+    mov [rdi+32],  r12
+    mov [rdi+40],  r13
+    mov [rdi+48],  r14
+    mov [rdi+56],  r15
+    ret
+
+# === Transformations ===
+transform_add4:
+    mov rax, 0x0404040404040404
+    add r8, rax
+    add r9, rax
+    add r10, rax
+    add r11, rax
+    add r12, rax
+    add r13, rax
+    add r14, rax
+    add r15, rax
+    ret
+
+transform_sub4:
+    mov rax, 0x0404040404040404
+    sub r8, rax
+    sub r9, rax
+    sub r10, rax
+    sub r11, rax
+    sub r12, rax
+    sub r13, rax
+    sub r14, rax
+    sub r15, rax
+    ret
+
+# === ASCII -> HEX ===
+string_to_hex:
+    mov r12, rcx
+    mov r13, rsi
+    mov r14, rdi
+.loop8:
+    cmp r12, 0
+    je .done
+    mov al, [r13]
+    mov dl, al
+    shr dl, 4
+    call nibble_to_hex_dl
+    mov [r14], dl
+    inc r14
+    mov dl, al
+    and dl, 0x0F
+    call nibble_to_hex_dl
+    mov [r14], dl
+    inc r14
+    inc r13
+    dec r12
+    jmp .loop8
+.done:
+    ret
+
+# === HEX -> ASCII ===
+hex_to_string:
+    mov r12, rcx
+    mov r13, rsi
+    mov r14, rdi
+.loop:
+    cmp r12, 0
+    je .done
+    mov dl, [r13]
+    call hexchar_to_nibble_dl
+    shl dl, 4
+    mov al, [r13+1]
+    call hexchar_to_nibble_al
+    or dl, al
+    mov [r14], dl
+    add r13, 2
+    add r14, 1
+    sub r12, 2
+    jmp .loop
+.done:
+    ret
+
+nibble_to_hex_dl:
+    cmp dl, 10
+    jb .digit
+    add dl, 'A' - 10
+    ret
+.digit:
+    add dl, '0'
+    ret
+
+hexchar_to_nibble_dl:
+    cmp dl, 'A'
+    jb .digit
+    sub dl, 'A' - 10
+    ret
+.digit:
+    sub dl, '0'
+    ret
+
+hexchar_to_nibble_al:
+    cmp al, 'A'
+    jb .digit
+    sub al, 'A' - 10
+    ret
+.digit:
+    sub al, '0'
+    ret
+
+print_string:
+    sub rsp, 32
+    mov r8, rdx
+    mov rdx, rcx
+    mov rcx, [rel handle]
+    xor r9, r9
+    call WriteFile
+    add rsp, 32
+    ret
+
+print_newline:
+    sub rsp, 32
+    mov rcx, [rel handle]
+    lea rdx, [rel newline]
+    mov r8, 1
+    xor r9, r9
+    call WriteFile
+    add rsp, 32
+    ret
