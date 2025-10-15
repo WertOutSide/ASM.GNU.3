@@ -1,0 +1,202 @@
+.intel_syntax noprefix
+.global main
+
+.data
+	original: .ascii "Наполеон стоял несколько впереди своих маршалов на маленькой серой арабской лошади"
+	hex_buffer: .space 128
+	restore_buffer: .space 64
+	handle: .quad 0
+	newline: .ascii "\n"
+
+.text
+main:
+	push rbp
+	mov rbp, rsp
+	mov rcx, -11
+	call GetStdHandle
+	mov [rip + handle], rax
+	call load_string_to_registers
+	call save_registers_to_memory
+	mov rcx, offset restore_buffer
+	mov rdx, 64
+	call print_string
+	call print_newline
+	call transform_forward
+	call save_registers_to_memory
+	mov rsi, offset restore_buffer
+	mov rdi, offset hex_buffer
+	mov rcx, 64
+	call string_to_hex
+	mov rcx, offset hex_buffer
+	mov rdx, 128
+	call print_string
+	call print_newline
+	mov rsi, offset hex_buffer
+	mov rdi, offset restore_buffer
+	mov rcx, 128
+	call hex_to_string
+	call load_string_to_registers
+	call transform_backward
+	call save_registers_to_memory
+	mov rcx, offset restore_buffer
+	mov rdx, 64
+	call print_string
+	call print_newline
+	pop rbp
+	ret
+
+load_string_to_registers:
+	mov r8,  [offset original]
+	mov r9,  [offset original + 8]
+	mov r10, [offset original + 16]
+	mov r11, [offset original + 24]
+	mov r12, [offset original + 32]
+	mov r13, [offset original + 40]
+	mov r14, [offset original + 48]
+	mov r15, [offset original + 56]
+	ret
+
+save_registers_to_memory:
+	mov [offset restore_buffer], r8
+	mov [offset restore_buffer + 8], r9
+	mov [offset restore_buffer + 16], r10
+	mov [offset restore_buffer + 24], r11
+	mov [offset restore_buffer + 32], r12
+	mov [offset restore_buffer + 40], r13
+	mov [offset restore_buffer + 48], r14
+	mov [offset restore_buffer + 56], r15
+	ret
+
+transform_forward:
+	mov rax, 0x0404040404040404
+	add r8, rax
+	add r9, rax
+	add r10, rax
+	add r11, rax
+	add r12, rax
+	add r13, rax
+	add r14, rax
+	add r15, rax
+	ret
+
+transform_backward:
+	mov rax, 0x0404040404040404
+	sub r8, rax
+	sub r9, rax
+	sub r10, rax
+	sub r11, rax
+	sub r12, rax
+	sub r13, rax
+	sub r14, rax
+	sub r15, rax
+	ret
+
+string_to_hex:
+	push r15
+	push r14
+	mov r15, rcx
+	mov r14, rdi
+stoh_loop:
+	mov rax, [rsi]
+	mov rcx, 8
+process_byte:
+	mov rbx, rax
+	and rbx, 0xFF
+	mov rdx, rbx
+	shr rdx, 4
+	call nibble_to_hex
+	mov [rdi], dl
+	inc rdi
+	mov rdx, rbx
+	and rdx, 0x0F
+	call nibble_to_hex
+	mov [rdi], dl
+	inc rdi
+	shr rax, 8
+	dec rcx
+	jnz process_byte
+	add rsi, 8
+	sub r15, 8
+	jnz stoh_loop
+	pop r14
+	pop r15
+	ret
+
+hex_to_string:
+	push r15
+	push r14
+	mov r15, rcx
+	shr r15, 1
+	mov r14, rdi
+htos_loop:
+	xor rax, rax
+	mov rcx, 8
+build_byte:
+	mov dl, [rsi]
+	mov dh, [rsi + 1]
+	call hex_to_nibble
+	shl dl, 4
+	call hex_to_nibble
+	or dl, dh
+	shr rax, 8
+	mov al, dl
+	add rsi, 2
+	dec r15
+	jz htos_done
+	dec rcx
+	jnz build_byte
+htos_done:
+	bswap rax
+	mov [rdi], rax
+	add rdi, 8
+	test r15, r15
+	jnz htos_loop
+	pop r14
+	pop r15
+	ret
+
+nibble_to_hex:
+	cmp dl, 10
+	jb .digit
+	add dl, 'A' - 10
+	ret
+.digit:
+	add dl, '0'
+	ret
+
+hex_to_nibble:
+	cmp dl, 'A'
+	jb .digit
+	sub dl, 'A' - 10
+	ret
+.digit:
+	sub dl, '0'
+	ret
+
+print_string:
+	push rbp
+	mov rbp, rsp
+	sub rsp, 32
+	mov r8, rdx
+	mov rdx, rcx
+	mov rcx, [rip + handle]
+	xor r9, r9
+	mov [rsp + 32], r9
+	call WriteFile
+	add rsp, 32
+	pop rbp
+	ret
+
+print_newline:
+	push rbp
+	mov rbp, rsp
+	sub rsp, 32
+	mov rcx, [rip + handle]
+	mov rdx, offset newline
+	mov r8, 1
+	xor r9, r9
+	mov [rsp + 32], r9
+	call WriteFile
+	add rsp, 32
+	pop rbp
+	ret
