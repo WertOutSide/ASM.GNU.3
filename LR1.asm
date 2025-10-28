@@ -9,7 +9,7 @@ bufer2:		.space 64
 message:	.asciz "rue to it. That is the one thing I have faith in Our good and wo"
 .equ	meslen, .-message - 1
 enter:	.asciz "\n"
-.equ	perlen, .-enter - 1
+.equ	entlen, .-enter - 1
 
 .text
 main:
@@ -133,7 +133,7 @@ entr_out:
     sub	rsp, 56
     mov	rcx, [rip + handle]
     lea	rdx, [rip + enter]
-    mov	r8, perlen
+    mov	r8, entlen
     mov	r9, 0
     mov	[rsp + 32], r9
     call	WriteFile
